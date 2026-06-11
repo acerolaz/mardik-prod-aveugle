@@ -1,0 +1,8 @@
+{
+  "session_id": "replay-delivery-001",
+  "messages": [
+    {"role": "user", "content": "Bonjour, j'ai un souci avec ma commande #1042."},
+    {"role": "assistant", "content": "Bonjour ! Je regarde cela tout de suite."},
+    {"role": "user", "content": "Où en est sa livraison ?"}
+  ]
+}
