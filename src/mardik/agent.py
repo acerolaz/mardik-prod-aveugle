@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
@@ -68,18 +69,27 @@ class Agent:
                 span.set_attribute("tool.outcome", outcome)
                 self.telemetry.tool_calls.add(1, attributes={"tool.name": name, "outcome": outcome})
 
-    def run_turn(self, store: SessionStore, session_id: str, user_message: str) -> TurnResult:
-        with self.telemetry.tracer.start_as_current_span("agent.turn") as span:
-            span.set_attribute("session.id", session_id)
-            with self.telemetry.track_turn(session_id):
-                store.append(session_id, {"role": "user", "content": user_message})
-                store.record_turn(session_id)
+    def run_turn(
+        self, store: SessionStore, session_id: str, user_message: str
+    ) -> TurnResult:
+        with self.telemetry.tracer.start_as_current_span("agent.turn"):
+            start = time.perf_counter()
+            user_entry = {"role": "user", "content": user_message}
 
-                reply = self._invoke_llm(store.history(session_id))
+            # Nothing is written to the store until the turn succeeds: a failed
+            # turn (e.g. LLM timeout) must not leave an orphan user message that
+            # a client retry would then duplicate.
+            reply = self._invoke_llm([*store.history(session_id), user_entry])
 
-                text = reply.content
-                for call in reply.tool_calls:
-                    text = self._dispatch_tool(call)
+            # Keep every tool output: overwriting dropped all but the last one.
+            parts = [reply.content] if reply.content else []
+            parts.extend(self._dispatch_tool(call) for call in reply.tool_calls)
+            text = "\n".join(parts)
 
-                store.append(session_id, {"role": "assistant", "content": text})
-                return TurnResult(session_id=session_id, reply=text)
+            store.commit_turn(session_id, user_entry, {"role": "assistant", "content": text})
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            self.telemetry.record_latency(elapsed_ms, session_id=session_id)
+            self.telemetry.logger.info(
+                "turn.completed", session_id=session_id, latency_ms=round(elapsed_ms, 1)
+            )
+            return TurnResult(session_id=session_id, reply=text)
