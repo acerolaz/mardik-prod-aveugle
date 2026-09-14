@@ -186,6 +186,21 @@ def test_large_tool_output_is_truncated_on_the_span(telemetry, span_exporter):
     assert len(result.reply) == 2000
 
 
+def test_tool_call_without_args_runs_with_the_args_it_traces(telemetry, span_exporter):
+    class NoArgsLLM:
+        def invoke(self, messages: list[dict[str, Any]]) -> Reply:
+            # Some models omit "args" entirely for a tool that takes no parameters.
+            return Reply(content="", tool_calls=[{"name": "ping"}])
+
+    agent = Agent(llm=NoArgsLLM(), tools={"ping": lambda: "pong"}, telemetry=telemetry)
+    result = replay(load_session("replay_delivery"), agent, SessionStore())
+
+    assert result.reply == "pong"
+    [tool] = [s for s in span_exporter.get_finished_spans() if s.name == "tool.call"]
+    assert tool.attributes["tool.input"] == "{}"
+    assert tool.attributes["tool.outcome"] == "ok"
+
+
 def test_spans_and_metrics_share_the_service_identity(fake_llm, span_exporter, metric_reader):
     telemetry = build_telemetry(
         span_exporter=span_exporter,

@@ -86,7 +86,7 @@ class Agent:
             span.set_attribute("tool.input", _truncate(tool_input))
             succeeded = False
             try:
-                result = self._tools[name](**call["args"])
+                result = self._tools[name](**tool_args)
                 span.set_attribute("tool.output", _truncate(result))
                 succeeded = True
                 return result
