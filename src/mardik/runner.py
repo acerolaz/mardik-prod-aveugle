@@ -24,5 +24,6 @@ def replay(session_data: dict[str, Any], agent: Agent, store: SessionStore) -> T
     """Replay a recorded session and return the result of its final turn."""
     session_id = session_data["session_id"]
     messages = session_data["messages"]
-    last = messages[-1]
+    *previous, last = messages
+    store.load_history(session_id, previous)
     return agent.run_turn(store, session_id, last["content"])

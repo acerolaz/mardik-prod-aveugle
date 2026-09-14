@@ -19,6 +19,10 @@ class SessionStore:
     def append(self, session_id: str, message: dict[str, Any]) -> None:
         self._history.setdefault(session_id, []).append(message)
 
+    def load_history(self, session_id: str, messages: list[dict[str, Any]]) -> None:
+        """Initialise a session with a previously recorded conversation."""
+        self._history[session_id] = list(messages)
+
     def history(self, session_id: str) -> list[dict[str, Any]]:
         return list(self._history.get(session_id, []))
 
