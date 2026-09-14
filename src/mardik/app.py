@@ -22,7 +22,7 @@ def build_agent(
 
         llm = get_llm(settings)
     if telemetry is None:
-        telemetry = build_default_telemetry(settings.log_level)
+        telemetry = build_default_telemetry(settings)
     return Agent(llm=llm, tools=DEFAULT_TOOLS, telemetry=telemetry)
 
 
@@ -30,8 +30,12 @@ def main() -> None:
     settings = load_settings()
     agent = build_agent(settings=settings)
     store = SessionStore()
-    result = agent.run_turn(store, "cli", "Bonjour")
-    print(result.reply)
+    try:
+        result = agent.run_turn(store, "cli", "Bonjour")
+        print(result.reply)
+    finally:
+        # Flush batched spans/metrics before the process exits.
+        agent.telemetry.shutdown()
 
 
 if __name__ == "__main__":
