@@ -34,3 +34,6 @@ uv.lock
 
 # Docker
 .docker-data/
+
+# Claude Code worktrees
+.claude/worktrees/
