@@ -1,0 +1,17 @@
+{
+  "session_id": "size-exchange-001",
+  "description": "Client souhaitant échanger un article contre une autre taille : le numéro de commande n'apparaît qu'au premier tour, la demande d'échange arrive au dernier.",
+  "expected": {
+    "order_id": "2098",
+    "order_status": "en préparation",
+    "kb_topic": "échange de taille",
+    "tools": ["lookup_order", "knowledge_base"]
+  },
+  "messages": [
+    {"role": "user", "content": "Bonjour, j'ai commandé un pull en taille M (commande #2098) mais il me faudrait finalement du L."},
+    {"role": "assistant", "content": "Bonjour ! Je peux vous aider. S'agit-il bien du pull en laine bleu marine ?"},
+    {"role": "user", "content": "Oui, c'est bien celui-là, le M sera trop juste."},
+    {"role": "assistant", "content": "Très bien, je regarde les options possibles pour cet article."},
+    {"role": "user", "content": "Est-ce que je peux échanger la taille avant l'expédition ?"}
+  ]
+}
