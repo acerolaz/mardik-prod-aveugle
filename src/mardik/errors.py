@@ -1,4 +1,5 @@
 """Domain-level exceptions for the Mardik agent."""
+
 from __future__ import annotations
 
 

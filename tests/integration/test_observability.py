@@ -32,7 +32,7 @@ from mardik.errors import LLMTimeoutError
 from mardik.runner import load_session, replay
 from mardik.session import SessionStore
 from mardik.telemetry import Telemetry, build_resource, build_telemetry
-from mardik.tools import DEFAULT_TOOLS
+from mardik.tools import DEFAULT_TOOLS, lookup_order
 
 SESSIONS_DIR = Path(__file__).resolve().parents[2] / "sessions"
 ANSWERED_SESSIONS = ["replay_delivery", "return_refund", "size_exchange"]
@@ -44,6 +44,18 @@ class UnknownToolLLM:
 
     def invoke(self, messages: list[dict[str, Any]]) -> Reply:
         return Reply(content="", tool_calls=[{"name": "cancel_order", "args": {"order_id": "1"}}])
+
+
+class UsageReportingLLM:
+    """Delegates, and reports token usage the way a real chat client would."""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def invoke(self, messages: list[dict[str, Any]]) -> Reply:
+        reply = self._inner.invoke(messages)
+        reply.usage = {"input_tokens": 12, "output_tokens": 3}
+        return reply
 
 
 class RendezvousLLM:
@@ -137,13 +149,41 @@ def test_successful_turn_is_consistent_across_signals(
     spans = span_exporter.get_finished_spans()
     assert {s.status.status_code for s in spans} == {StatusCode.UNSET}
     tool = next(s for s in spans if s.name == "tool.call")
-    assert dict(tool.attributes) == {"tool.name": "lookup_order", "tool.outcome": "ok"}
+    assert dict(tool.attributes) == {
+        "tool.name": "lookup_order",
+        "tool.input": '{"order_id": "1042"}',
+        "tool.output": lookup_order("1042"),
+        "tool.outcome": "ok",
+    }
 
     assert _latency_counts(metric_reader) == {"ok": 1}
     assert _counter(metric_reader, "tool_calls_total") == {
         (("outcome", "ok"), ("tool.name", "lookup_order")): 1
     }
     assert _points(metric_reader, "errors_total") == []
+
+
+def test_llm_span_carries_token_usage(fake_llm, telemetry, span_exporter, metric_reader):
+    llm = UsageReportingLLM(fake_llm)
+    replay(load_session("replay_delivery"), _agent(llm, telemetry), SessionStore())
+
+    [llm_span] = [s for s in span_exporter.get_finished_spans() if s.name == "llm.invoke"]
+    assert llm_span.attributes["gen_ai.usage.input_tokens"] == 12
+    assert llm_span.attributes["gen_ai.usage.output_tokens"] == 3
+
+
+def test_large_tool_output_is_truncated_on_the_span(telemetry, span_exporter):
+    class BigToolLLM:
+        def invoke(self, messages: list[dict[str, Any]]) -> Reply:
+            return Reply(content="", tool_calls=[{"name": "dump", "args": {}}])
+
+    agent = Agent(llm=BigToolLLM(), tools={"dump": lambda: "x" * 2000}, telemetry=telemetry)
+    result = replay(load_session("replay_delivery"), agent, SessionStore())
+
+    [tool] = [s for s in span_exporter.get_finished_spans() if s.name == "tool.call"]
+    assert len(tool.attributes["tool.output"]) == 512
+    # Truncation is for the trace only: the customer still gets the whole answer.
+    assert len(result.reply) == 2000
 
 
 def test_spans_and_metrics_share_the_service_identity(fake_llm, span_exporter, metric_reader):
@@ -204,7 +244,11 @@ def test_failing_tool_call_is_observable_on_every_signal(
     spans = {s.name: s for s in span_exporter.get_finished_spans()}
     assert set(spans) == {"agent.turn", "llm.invoke", "tool.call"}
     tool = spans["tool.call"]
-    assert dict(tool.attributes) == {"tool.name": "cancel_order", "tool.outcome": "error"}
+    assert dict(tool.attributes) == {
+        "tool.name": "cancel_order",
+        "tool.input": '{"order_id": "1"}',
+        "tool.outcome": "error",
+    }
     assert tool.status.status_code == StatusCode.ERROR
     assert spans["llm.invoke"].status.status_code == StatusCode.UNSET
     assert spans["agent.turn"].status.status_code == StatusCode.ERROR

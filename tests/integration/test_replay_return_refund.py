@@ -150,7 +150,9 @@ def test_tool_span_names_the_expected_tool(session, fake_llm, telemetry, span_ex
     assert [s.attributes["tool.name"] for s in tool_spans] == [session["expected"]["tool"]]
 
 
-def test_latency_metric_is_tagged_with_outcome_not_session_id(session, fake_llm, telemetry, metric_reader):
+def test_latency_metric_is_tagged_with_outcome_not_session_id(
+    session, fake_llm, telemetry, metric_reader
+):
     replay(session, _agent(fake_llm, telemetry), SessionStore())
 
     points = [

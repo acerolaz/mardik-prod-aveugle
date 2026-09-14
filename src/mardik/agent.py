@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
@@ -11,11 +12,19 @@ from .errors import LLMTimeoutError
 from .session import SessionStore
 from .telemetry import NoOpTelemetry
 
+# Tool payloads go on spans for debugging; cap them so one big result can't bloat a trace.
+MAX_SPAN_PAYLOAD_CHARS = 512
+
+
+def _truncate(text: str) -> str:
+    return text[:MAX_SPAN_PAYLOAD_CHARS]
+
 
 @dataclass
 class Reply:
     content: str
     tool_calls: list[dict[str, Any]]
+    usage: dict[str, int] | None = None
 
 
 @dataclass
@@ -34,33 +43,51 @@ class Agent:
         llm: LLM,
         tools: dict[str, Callable[..., str]],
         telemetry: Any | None = None,
+        llm_timeout_s: float | None = 30.0,
     ) -> None:
         self.llm = llm
         self._tools = tools
         self.telemetry = telemetry if telemetry is not None else NoOpTelemetry()
+        self.llm_timeout_s = llm_timeout_s
 
     def _invoke_llm_sync(self, messages: list[dict[str, Any]]) -> Reply:
-        with self.telemetry.tracer.start_as_current_span("llm.invoke"):
-            return self.llm.invoke(messages)
+        with self.telemetry.tracer.start_as_current_span("llm.invoke") as span:
+            reply = self.llm.invoke(messages)
+            if reply.usage:
+                for key in ("input_tokens", "output_tokens"):
+                    if key in reply.usage:
+                        span.set_attribute(f"gen_ai.usage.{key}", reply.usage[key])
+            return reply
 
     def _invoke_llm(self, messages: list[dict[str, Any]]) -> Reply:
         # The Azure SDK call is blocking, so run it on a worker thread. It runs in a
         # copy of the current context so the worker's span joins the trace.
         ctx = contextvars.copy_context()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(ctx.run, self._invoke_llm_sync, messages)
-            try:
-                return future.result()
-            except TimeoutError as exc:
-                raise LLMTimeoutError("LLM invocation timed out") from exc
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(ctx.run, self._invoke_llm_sync, messages)
+        try:
+            # Catches both the deadline below and a TimeoutError raised by the SDK.
+            return future.result(timeout=self.llm_timeout_s)
+        except TimeoutError as exc:
+            raise LLMTimeoutError("LLM invocation timed out") from exc
+        finally:
+            hung = not future.done()
+            pool.shutdown(wait=not hung, cancel_futures=hung)
 
     def _dispatch_tool(self, call: dict[str, Any]) -> str:
         name = call["name"]
         with self.telemetry.tracer.start_as_current_span("tool.call") as span:
             span.set_attribute("tool.name", name)
+            tool_args = call.get("args", {})
+            try:
+                tool_input = json.dumps(tool_args, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                tool_input = repr(tool_args)
+            span.set_attribute("tool.input", _truncate(tool_input))
             succeeded = False
             try:
                 result = self._tools[name](**call["args"])
+                span.set_attribute("tool.output", _truncate(result))
                 succeeded = True
                 return result
             finally:

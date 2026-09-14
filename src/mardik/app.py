@@ -1,4 +1,5 @@
 """Application wiring: build a ready-to-run agent and a CLI entrypoint."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -23,7 +24,12 @@ def build_agent(
         llm = get_llm(settings)
     if telemetry is None:
         telemetry = build_default_telemetry(settings)
-    return Agent(llm=llm, tools=DEFAULT_TOOLS, telemetry=telemetry)
+    return Agent(
+        llm=llm,
+        tools=DEFAULT_TOOLS,
+        telemetry=telemetry,
+        llm_timeout_s=settings.llm_timeout_s,
+    )
 
 
 def main() -> None:

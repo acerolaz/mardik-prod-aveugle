@@ -1,4 +1,5 @@
 """Factory for the production LLM client (Azure AI Inference, Kimi-K2.6)."""
+
 from __future__ import annotations
 
 from typing import Any

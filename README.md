@@ -36,13 +36,14 @@ Tout passe par le bundle injectable `Telemetry` (`src/mardik/telemetry.py`) :
 
 | Signal | Contenu | Où le voir |
 |---|---|---|
-| Traces | `agent.turn` (`session.id`) > `llm.invoke`, `tool.call` (`tool.name`, `tool.outcome`) ; statut ERROR si exception | Jaeger http://localhost:16686, service `mardik` |
+| Traces | `agent.turn` (`session.id`) > `llm.invoke` (`gen_ai.usage.input_tokens` / `output_tokens` si le client les fournit), `tool.call` (`tool.name`, `tool.input`, `tool.output` tronqués à 512 caractères, `tool.outcome`) ; statut ERROR si exception | Jaeger http://localhost:16686, service `mardik` |
 | Métriques | `latency_ms{outcome}`, `errors_total{error.type}`, `tool_calls_total{tool.name, outcome}` | stdout (`OTEL_METRICS_EXPORTER=console`) ou collecteur OTLP (`otlp`) |
 | Logs | JSON : `turn.completed` / `turn.failed` avec `session_id`, `latency_ms`, `trace_id`, `span_id` | stdout |
 
 - Relier un log à sa trace : copier son `trace_id` dans la recherche Jaeger ; inversement `grep <trace_id>` dans les logs.
 - `session_id` n'est jamais un attribut de métrique (une série par session sinon) : il est sur les spans et dans les logs.
 - Le CLI appelle `telemetry.shutdown()` en sortie pour vider les spans exportés par lots.
+- Un appel LLM qui dépasse `MARDIK_LLM_TIMEOUT_S` (30 s par défaut) fait échouer le tour avec `LLMTimeoutError`, sans rien écrire dans la session.
 - Instrumenter un nouveau traitement : `with telemetry.tracer.start_as_current_span("nom")`, et `with telemetry.track_turn(session_id)` pour un tour complet.
 
 ## Layout
@@ -68,12 +69,16 @@ docker-compose.yml  Jaeger all-in-one pour la collecte locale des traces
 make fmt        # ruff format + autofix
 make lint       # ruff check
 make typecheck  # mypy
+make check      # format + lint + mypy + tests (mêmes étapes que la CI)
 make down       # stop docker services
 ```
 
 ## Known issues
 
-L'observabilité n'a pas encore été validée de bout en bout sous charge.
+La tenue sous charge est couverte par les tests : `tests/integration/test_observability.py` (24 tours simultanés sur des sessions distinctes) et `tests/integration/test_replay_concurrent_session.py` (24 tours simultanés sur une même session). Limites restantes :
+
+- `llm.py` renvoie le modèle LangChain brut, qui produit un `AIMessage` et non le `Reply` attendu par `Agent` : un adaptateur (contenu, `tool_calls`, `usage_metadata` → `usage`) reste à écrire avant un usage en production.
+- Aucune évaluation de la qualité des réponses (LLM-as-judge, groundedness) : les tests vérifient le comportement et les signaux, pas la pertinence sémantique.
 
 ## License
 

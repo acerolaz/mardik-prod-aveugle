@@ -1,4 +1,4 @@
-.PHONY: up down test fmt lint typecheck install
+.PHONY: up down test fmt lint typecheck install check
 
 install:
 	uv sync
@@ -21,3 +21,9 @@ lint:
 
 typecheck:
 	uv run mypy src
+
+check:
+	uv run ruff format --check .
+	uv run ruff check .
+	uv run mypy src
+	uv run pytest
