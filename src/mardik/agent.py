@@ -71,8 +71,8 @@ class Agent:
         except TimeoutError as exc:
             raise LLMTimeoutError("LLM invocation timed out") from exc
         finally:
-            # Never wait for a hung call: the turn fails now, the worker is abandoned.
-            pool.shutdown(wait=False, cancel_futures=True)
+            hung = not future.done()
+            pool.shutdown(wait=not hung, cancel_futures=hung)
 
     def _dispatch_tool(self, call: dict[str, Any]) -> str:
         name = call["name"]
