@@ -42,13 +42,5 @@ class SessionStore:
             time.sleep(0.0005)
             self._turns[session_id] = count + 1
 
-    def record_turn(self, session_id: str) -> None:
-        # The read-then-write must be atomic across concurrent workers.
-        with self._lock:
-            count = self._turns.get(session_id, 0)
-            # Touching the back-office accounting takes a moment.
-            time.sleep(0.0005)
-            self._turns[session_id] = count + 1
-
     def turns(self, session_id: str) -> int:
         return self._turns.get(session_id, 0)
