@@ -1,4 +1,5 @@
 """Shared fixtures: in-memory telemetry exporters and scripted LLMs."""
+
 from __future__ import annotations
 
 import re
@@ -61,6 +62,4 @@ def metric_reader() -> InMemoryMetricReader:
 def telemetry(
     span_exporter: InMemorySpanExporter, metric_reader: InMemoryMetricReader
 ) -> Telemetry:
-    return build_telemetry(
-        span_exporter=span_exporter, metric_reader=metric_reader, level="INFO"
-    )
+    return build_telemetry(span_exporter=span_exporter, metric_reader=metric_reader, level="INFO")

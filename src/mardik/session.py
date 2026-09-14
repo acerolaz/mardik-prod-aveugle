@@ -1,4 +1,5 @@
 """In-memory session store shared across concurrent agent turns."""
+
 from __future__ import annotations
 
 import threading

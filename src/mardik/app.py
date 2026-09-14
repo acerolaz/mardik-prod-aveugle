@@ -1,4 +1,5 @@
 """Application wiring: build a ready-to-run agent and a CLI entrypoint."""
+
 from __future__ import annotations
 
 from typing import Any

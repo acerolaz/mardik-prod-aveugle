@@ -1,4 +1,5 @@
 """Replay recorded sessions through the agent for integration testing."""
+
 from __future__ import annotations
 
 import json

@@ -16,7 +16,11 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: uv sync
+      - name: Format
+        run: uv run ruff format --check .
       - name: Lint
         run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy src
       - name: Run tests (unit + integration replays)
         run: uv run pytest -v

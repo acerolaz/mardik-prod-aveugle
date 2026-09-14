@@ -1,4 +1,5 @@
 """Tools the agent can call to answer support questions."""
+
 from __future__ import annotations
 
 from typing import Callable
