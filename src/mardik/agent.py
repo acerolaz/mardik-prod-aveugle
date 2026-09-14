@@ -34,10 +34,12 @@ class Agent:
         llm: LLM,
         tools: dict[str, Callable[..., str]],
         telemetry: Any | None = None,
+        llm_timeout_s: float | None = 30.0,
     ) -> None:
         self.llm = llm
         self._tools = tools
         self.telemetry = telemetry if telemetry is not None else NoOpTelemetry()
+        self.llm_timeout_s = llm_timeout_s
 
     def _invoke_llm_sync(self, messages: list[dict[str, Any]]) -> Reply:
         with self.telemetry.tracer.start_as_current_span("llm.invoke"):
@@ -47,12 +49,16 @@ class Agent:
         # The Azure SDK call is blocking, so run it on a worker thread. It runs in a
         # copy of the current context so the worker's span joins the trace.
         ctx = contextvars.copy_context()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(ctx.run, self._invoke_llm_sync, messages)
-            try:
-                return future.result()
-            except TimeoutError as exc:
-                raise LLMTimeoutError("LLM invocation timed out") from exc
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(ctx.run, self._invoke_llm_sync, messages)
+        try:
+            # Catches both the deadline below and a TimeoutError raised by the SDK.
+            return future.result(timeout=self.llm_timeout_s)
+        except TimeoutError as exc:
+            raise LLMTimeoutError("LLM invocation timed out") from exc
+        finally:
+            # Never wait for a hung call: the turn fails now, the worker is abandoned.
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def _dispatch_tool(self, call: dict[str, Any]) -> str:
         name = call["name"]

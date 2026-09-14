@@ -12,6 +12,8 @@ tools -> telemetry) and pins the behaviour restored by the fix.
 from __future__ import annotations
 
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +65,17 @@ class TimeoutThenAnswerLLM:
         if len(self.calls) == 1:
             raise TimeoutError("upstream deadline exceeded")
         return self._inner.invoke(messages)
+
+
+class HangingLLM:
+    """Never answers in time: blocks until released (or 2 s, so a regression fails, not hangs)."""
+
+    def __init__(self) -> None:
+        self.release = threading.Event()
+
+    def invoke(self, messages: list[dict[str, Any]]) -> Reply:
+        self.release.wait(timeout=2)
+        return Reply(content="trop tard", tool_calls=[])
 
 
 @pytest.fixture(autouse=True)
@@ -209,6 +222,28 @@ def test_timeout_incident_does_not_leak_into_other_sessions(fake_llm, telemetry)
     assert result.reply == lookup_order("1042")
     assert store.history(delivery["session_id"])[:-1] == delivery["messages"]
     assert store.turns(incident["session_id"]) == 0
+
+
+def test_hanging_llm_is_cut_off_by_the_deadline(telemetry, span_exporter):
+    data = load_session("incident_timeout")
+    previous, _ = _last_user_turn(data)
+    llm = HangingLLM()
+    agent = Agent(llm=llm, tools=DEFAULT_TOOLS, telemetry=telemetry, llm_timeout_s=0.05)
+    store = SessionStore()
+
+    start = time.perf_counter()
+    try:
+        with pytest.raises(LLMTimeoutError):
+            replay(data, agent, store)
+        elapsed = time.perf_counter() - start
+    finally:
+        llm.release.set()
+
+    assert elapsed < 1.0
+    assert store.history(data["session_id"]) == previous
+    assert store.turns(data["session_id"]) == 0
+    [turn] = [s for s in span_exporter.get_finished_spans() if s.name == "agent.turn"]
+    assert turn.status.status_code == StatusCode.ERROR
 
 
 def test_timeout_incident_is_observable_as_a_failed_turn(fake_llm, telemetry, span_exporter):

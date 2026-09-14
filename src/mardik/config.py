@@ -15,6 +15,7 @@ class Settings:
     service_name: str
     log_level: str
     metrics_exporter: str = "console"
+    llm_timeout_s: float = 30.0
 
 
 def load_settings() -> Settings:
@@ -26,4 +27,5 @@ def load_settings() -> Settings:
         service_name=os.environ.get("OTEL_SERVICE_NAME", "mardik"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
         metrics_exporter=os.environ.get("OTEL_METRICS_EXPORTER", "console").lower(),
+        llm_timeout_s=float(os.environ.get("MARDIK_LLM_TIMEOUT_S", "30")),
     )
