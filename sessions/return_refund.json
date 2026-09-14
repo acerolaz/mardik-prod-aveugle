@@ -1,0 +1,18 @@
+{
+  "session_id": "return-refund-001",
+  "description": "Client ayant renvoyé un article : le numéro de commande n'apparaît qu'au premier tour, la question finale n'y fait plus référence.",
+  "expected": {
+    "tool": "lookup_order",
+    "order_id": "3157",
+    "reply_contains": "remboursement en cours"
+  },
+  "messages": [
+    {"role": "user", "content": "Bonjour, j'ai renvoyé ma commande #3157 la semaine dernière, la taille était trop petite."},
+    {"role": "assistant", "content": "Bonjour ! Désolé pour ce désagrément. Avez-vous bien utilisé le bordereau de retour fourni ?"},
+    {"role": "user", "content": "Oui, j'ai déposé le colis en point relais lundi."},
+    {"role": "assistant", "content": "Merci. Un retour est généralement traité sous 3 à 5 jours ouvrés après réception à l'entrepôt."},
+    {"role": "user", "content": "D'accord, mais je n'ai toujours rien reçu sur ma carte bancaire."},
+    {"role": "assistant", "content": "Je comprends votre inquiétude, je vérifie cela."},
+    {"role": "user", "content": "Où en est mon remboursement ?"}
+  ]
+}
