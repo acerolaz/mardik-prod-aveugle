@@ -30,6 +30,21 @@ make test                 # run the test suite
 
 Jaeger UI : http://localhost:16686 — les traces y apparaissent une fois l'application instrumentée.
 
+## Observabilité
+
+Tout passe par le bundle injectable `Telemetry` (`src/mardik/telemetry.py`) :
+
+| Signal | Contenu | Où le voir |
+|---|---|---|
+| Traces | `agent.turn` (`session.id`) > `llm.invoke`, `tool.call` (`tool.name`, `tool.outcome`) ; statut ERROR si exception | Jaeger http://localhost:16686, service `mardik` |
+| Métriques | `latency_ms{outcome}`, `errors_total{error.type}`, `tool_calls_total{tool.name, outcome}` | stdout (`OTEL_METRICS_EXPORTER=console`) ou collecteur OTLP (`otlp`) |
+| Logs | JSON : `turn.completed` / `turn.failed` avec `session_id`, `latency_ms`, `trace_id`, `span_id` | stdout |
+
+- Relier un log à sa trace : copier son `trace_id` dans la recherche Jaeger ; inversement `grep <trace_id>` dans les logs.
+- `session_id` n'est jamais un attribut de métrique (une série par session sinon) : il est sur les spans et dans les logs.
+- Le CLI appelle `telemetry.shutdown()` en sortie pour vider les spans exportés par lots.
+- Instrumenter un nouveau traitement : `with telemetry.tracer.start_as_current_span("nom")`, et `with telemetry.track_turn(session_id)` pour un tour complet.
+
 ## Layout
 
 ```
@@ -58,7 +73,7 @@ make down       # stop docker services
 
 ## Known issues
 
-L'observabilité est câblée mais n'a pas encore été validée de bout en bout sous charge.
+L'observabilité n'a pas encore été validée de bout en bout sous charge.
 
 ## License
 
