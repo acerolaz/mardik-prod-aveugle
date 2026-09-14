@@ -78,9 +78,12 @@ class Agent:
         name = call["name"]
         with self.telemetry.tracer.start_as_current_span("tool.call") as span:
             span.set_attribute("tool.name", name)
-            span.set_attribute(
-                "tool.input", _truncate(json.dumps(call["args"], ensure_ascii=False))
-            )
+            tool_args = call.get("args", {})
+            try:
+                tool_input = json.dumps(tool_args, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                tool_input = repr(tool_args)
+            span.set_attribute("tool.input", _truncate(tool_input))
             succeeded = False
             try:
                 result = self._tools[name](**call["args"])
