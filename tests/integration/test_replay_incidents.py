@@ -27,7 +27,7 @@ from mardik.tools import DEFAULT_TOOLS, knowledge_base, lookup_order
 
 SESSIONS_DIR = Path(__file__).resolve().parents[2] / "sessions"
 EXCHANGE_TOPIC = "échange de taille"
-APOLOGY = "Je vérifie votre commande."
+PREAMBLE = "Je vérifie votre commande."
 
 
 class MultiToolLLM:
@@ -96,10 +96,10 @@ def test_multi_tool_replay_keeps_llm_text_before_tool_outputs(telemetry):
     data = load_session("size_exchange")
     order_id = data["expected"]["order_id"]
 
-    result = replay(data, _agent(MultiToolLLM(preamble=APOLOGY), telemetry), SessionStore())
+    result = replay(data, _agent(MultiToolLLM(preamble=PREAMBLE), telemetry), SessionStore())
 
     assert result.reply.split("\n") == [
-        APOLOGY,
+        PREAMBLE,
         lookup_order(order_id),
         knowledge_base(EXCHANGE_TOPIC),
     ]
