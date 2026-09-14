@@ -1,6 +1,7 @@
 """The Mardik agent: turns a user message into a reply, calling tools as needed."""
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 from dataclasses import dataclass
@@ -53,7 +54,9 @@ class Agent:
                 # Exceptions do not cross thread boundaries: hand it back.
                 box["error"] = exc
 
-        thread = threading.Thread(target=worker)
+        # Run in a copy of the current context so the worker's span joins the trace.
+        ctx = contextvars.copy_context()
+        thread = threading.Thread(target=ctx.run, args=(worker,))
         thread.start()
         thread.join()
         if "error" in box:
@@ -61,8 +64,10 @@ class Agent:
         return box["reply"]
 
     def _dispatch_tool(self, call: dict[str, Any]) -> str:
-        tool = self._tools[call["name"]]
-        return tool(**call["args"])
+        with self.telemetry.tracer.start_as_current_span("tool.call") as span:
+            span.set_attribute("tool.name", call["name"])
+            tool = self._tools[call["name"]]
+            return tool(**call["args"])
 
     def run_turn(
         self, store: SessionStore, session_id: str, user_message: str
@@ -80,5 +85,8 @@ class Agent:
 
             store.append(session_id, {"role": "assistant", "content": text})
             elapsed_ms = (time.perf_counter() - start) * 1000.0
-            print(f"turn completed for {session_id} in {elapsed_ms:.1f}ms")
+            self.telemetry.record_latency(elapsed_ms, session_id=session_id)
+            self.telemetry.logger.info(
+                "turn.completed", session_id=session_id, latency_ms=round(elapsed_ms, 1)
+            )
             return TurnResult(session_id=session_id, reply=text)

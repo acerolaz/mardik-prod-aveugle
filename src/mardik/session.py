@@ -1,6 +1,7 @@
 """In-memory session store shared across concurrent agent turns."""
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
@@ -15,6 +16,7 @@ class SessionStore:
     def __init__(self) -> None:
         self._history: dict[str, list[dict[str, Any]]] = {}
         self._turns: dict[str, int] = {}
+        self._lock = threading.Lock()
 
     def append(self, session_id: str, message: dict[str, Any]) -> None:
         self._history.setdefault(session_id, []).append(message)
@@ -27,10 +29,12 @@ class SessionStore:
         return list(self._history.get(session_id, []))
 
     def record_turn(self, session_id: str) -> None:
-        count = self._turns.get(session_id, 0)
-        # Touching the back-office accounting takes a moment.
-        time.sleep(0.0005)
-        self._turns[session_id] = count + 1
+        # The read-then-write must be atomic across concurrent workers.
+        with self._lock:
+            count = self._turns.get(session_id, 0)
+            # Touching the back-office accounting takes a moment.
+            time.sleep(0.0005)
+            self._turns[session_id] = count + 1
 
     def turns(self, session_id: str) -> int:
         return self._turns.get(session_id, 0)
