@@ -106,13 +106,9 @@ def test_reply_points_to_exchange_procedure(session, exchange_llm, telemetry):
     result = replay(session, _agent(exchange_llm, telemetry), SessionStore())
 
     assert result.session_id == session["session_id"]
-    assert result.reply == knowledge_base(session["expected"]["kb_topic"])
+    assert result.reply.endswith(knowledge_base(session["expected"]["kb_topic"]))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Agent.run_turn overwrites the reply with each tool output: only the last one is kept",
-)
 def test_reply_combines_order_status_and_exchange_procedure(session, exchange_llm, telemetry):
     result = replay(session, _agent(exchange_llm, telemetry), SessionStore())
 
@@ -159,7 +155,7 @@ def test_exchange_request_without_order_id_asks_for_it_then_resolves(
     second = agent.run_turn(
         store, "size-exchange-no-id", "C'est la #2098, je veux échanger la taille."
     )
-    assert second.reply == knowledge_base(EXCHANGE_TOPIC)
+    assert second.reply == "\n".join([lookup_order("2098"), knowledge_base(EXCHANGE_TOPIC)])
     assert store.turns("size-exchange-no-id") == 2
     assert len(store.history("size-exchange-no-id")) == 4
 

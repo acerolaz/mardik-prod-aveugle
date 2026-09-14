@@ -28,6 +28,17 @@ class SessionStore:
     def history(self, session_id: str) -> list[dict[str, Any]]:
         return list(self._history.get(session_id, []))
 
+    def commit_turn(
+        self,
+        session_id: str,
+        user_message: dict[str, Any],
+        assistant_message: dict[str, Any],
+    ) -> None:
+        """Persist a completed turn: both messages are appended together, then counted."""
+        with self._lock:
+            self._history.setdefault(session_id, []).extend([user_message, assistant_message])
+        self.record_turn(session_id)
+
     def record_turn(self, session_id: str) -> None:
         # The read-then-write must be atomic across concurrent workers.
         with self._lock:

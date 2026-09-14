@@ -74,16 +74,19 @@ class Agent:
     ) -> TurnResult:
         with self.telemetry.tracer.start_as_current_span("agent.turn"):
             start = time.perf_counter()
-            store.append(session_id, {"role": "user", "content": user_message})
-            store.record_turn(session_id)
+            user_entry = {"role": "user", "content": user_message}
 
-            reply = self._invoke_llm(store.history(session_id))
+            # Nothing is written to the store until the turn succeeds: a failed
+            # turn (e.g. LLM timeout) must not leave an orphan user message that
+            # a client retry would then duplicate.
+            reply = self._invoke_llm([*store.history(session_id), user_entry])
 
-            text = reply.content
-            for call in reply.tool_calls:
-                text = self._dispatch_tool(call)
+            # Keep every tool output: overwriting dropped all but the last one.
+            parts = [reply.content] if reply.content else []
+            parts.extend(self._dispatch_tool(call) for call in reply.tool_calls)
+            text = "\n".join(parts)
 
-            store.append(session_id, {"role": "assistant", "content": text})
+            store.commit_turn(session_id, user_entry, {"role": "assistant", "content": text})
             elapsed_ms = (time.perf_counter() - start) * 1000.0
             self.telemetry.record_latency(elapsed_ms, session_id=session_id)
             self.telemetry.logger.info(

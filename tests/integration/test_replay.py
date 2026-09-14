@@ -27,3 +27,12 @@ def test_replay_timeout_incident(timeout_llm, telemetry):
     data = load_session("incident_timeout")
     with pytest.raises(LLMTimeoutError):
         replay(data, _agent(timeout_llm, telemetry), SessionStore())
+
+
+def test_replay_timeout_incident_keeps_recorded_history(timeout_llm, telemetry):
+    data = load_session("incident_timeout")
+    store = SessionStore()
+    with pytest.raises(LLMTimeoutError):
+        replay(data, _agent(timeout_llm, telemetry), store)
+    assert store.history(data["session_id"]) == data["messages"][:-1]
+    assert store.turns(data["session_id"]) == 0
