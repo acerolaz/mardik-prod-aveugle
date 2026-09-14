@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import json
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
@@ -11,11 +12,19 @@ from .errors import LLMTimeoutError
 from .session import SessionStore
 from .telemetry import NoOpTelemetry
 
+# Tool payloads go on spans for debugging; cap them so one big result can't bloat a trace.
+MAX_SPAN_PAYLOAD_CHARS = 512
+
+
+def _truncate(text: str) -> str:
+    return text[:MAX_SPAN_PAYLOAD_CHARS]
+
 
 @dataclass
 class Reply:
     content: str
     tool_calls: list[dict[str, Any]]
+    usage: dict[str, int] | None = None
 
 
 @dataclass
@@ -42,8 +51,13 @@ class Agent:
         self.llm_timeout_s = llm_timeout_s
 
     def _invoke_llm_sync(self, messages: list[dict[str, Any]]) -> Reply:
-        with self.telemetry.tracer.start_as_current_span("llm.invoke"):
-            return self.llm.invoke(messages)
+        with self.telemetry.tracer.start_as_current_span("llm.invoke") as span:
+            reply = self.llm.invoke(messages)
+            if reply.usage:
+                for key in ("input_tokens", "output_tokens"):
+                    if key in reply.usage:
+                        span.set_attribute(f"gen_ai.usage.{key}", reply.usage[key])
+            return reply
 
     def _invoke_llm(self, messages: list[dict[str, Any]]) -> Reply:
         # The Azure SDK call is blocking, so run it on a worker thread. It runs in a
@@ -64,9 +78,13 @@ class Agent:
         name = call["name"]
         with self.telemetry.tracer.start_as_current_span("tool.call") as span:
             span.set_attribute("tool.name", name)
+            span.set_attribute(
+                "tool.input", _truncate(json.dumps(call["args"], ensure_ascii=False))
+            )
             succeeded = False
             try:
                 result = self._tools[name](**call["args"])
+                span.set_attribute("tool.output", _truncate(result))
                 succeeded = True
                 return result
             finally:
