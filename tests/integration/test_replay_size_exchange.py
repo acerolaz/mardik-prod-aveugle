@@ -201,7 +201,7 @@ def test_both_tool_calls_are_traced_under_the_turn(session, exchange_llm, teleme
             assert span.parent.span_id == root.context.span_id
 
 
-def test_latency_and_log_are_tagged_with_session_id(
+def test_latency_tagged_with_outcome_and_log_with_session_id(
     session, exchange_llm, telemetry, metric_reader
 ):
     with capture_logs() as logs:
@@ -216,7 +216,8 @@ def test_latency_and_log_are_tagged_with_session_id(
         for point in metric.data.data_points
     ]
     assert len(points) == 1
-    assert points[0].attributes == {"session_id": session["session_id"]}
+    # session_id stays on spans and logs: as a metric label it would create one series per session.
+    assert points[0].attributes == {"outcome": "ok"}
 
     completed = [entry for entry in logs if entry.get("event") == "turn.completed"]
     assert [entry["session_id"] for entry in completed] == [session["session_id"]]

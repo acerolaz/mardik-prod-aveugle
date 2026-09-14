@@ -1,9 +1,10 @@
 """The Mardik agent: turns a user message into a reply, calling tools as needed."""
+
 from __future__ import annotations
 
 import contextvars
-import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
@@ -44,30 +45,29 @@ class Agent:
             return self.llm.invoke(messages)
 
     def _invoke_llm(self, messages: list[dict[str, Any]]) -> Reply:
-        # The Azure SDK call is blocking, so run it on a worker thread.
-        box: dict[str, Any] = {}
-
-        def worker() -> None:
-            try:
-                box["reply"] = self._invoke_llm_sync(messages)
-            except TimeoutError as exc:
-                # Exceptions do not cross thread boundaries: hand it back.
-                box["error"] = exc
-
-        # Run in a copy of the current context so the worker's span joins the trace.
+        # The Azure SDK call is blocking, so run it on a worker thread. It runs in a
+        # copy of the current context so the worker's span joins the trace.
         ctx = contextvars.copy_context()
-        thread = threading.Thread(target=ctx.run, args=(worker,))
-        thread.start()
-        thread.join()
-        if "error" in box:
-            raise LLMTimeoutError("LLM invocation timed out") from box["error"]
-        return box["reply"]
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(ctx.run, self._invoke_llm_sync, messages)
+            try:
+                return future.result()
+            except TimeoutError as exc:
+                raise LLMTimeoutError("LLM invocation timed out") from exc
 
     def _dispatch_tool(self, call: dict[str, Any]) -> str:
+        name = call["name"]
         with self.telemetry.tracer.start_as_current_span("tool.call") as span:
-            span.set_attribute("tool.name", call["name"])
-            tool = self._tools[call["name"]]
-            return tool(**call["args"])
+            span.set_attribute("tool.name", name)
+            succeeded = False
+            try:
+                result = self._tools[name](**call["args"])
+                succeeded = True
+                return result
+            finally:
+                outcome = "ok" if succeeded else "error"
+                span.set_attribute("tool.outcome", outcome)
+                self.telemetry.tool_calls.add(1, attributes={"tool.name": name, "outcome": outcome})
 
     def run_turn(
         self, store: SessionStore, session_id: str, user_message: str

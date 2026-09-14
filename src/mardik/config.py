@@ -13,6 +13,7 @@ class Settings:
     otel_endpoint: str
     service_name: str
     log_level: str
+    metrics_exporter: str = "console"
 
 
 def load_settings() -> Settings:
@@ -23,4 +24,5 @@ def load_settings() -> Settings:
         otel_endpoint=os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
         service_name=os.environ.get("OTEL_SERVICE_NAME", "mardik"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
+        metrics_exporter=os.environ.get("OTEL_METRICS_EXPORTER", "console").lower(),
     )
