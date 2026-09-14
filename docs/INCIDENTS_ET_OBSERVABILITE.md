@@ -249,7 +249,8 @@ Pour reproduire une mutation (exemple avec I4, sur une copie jetable) :
 
 ```bash
 cp -R . /tmp/mardik-mut && cd /tmp/mardik-mut
-sed -i '' 's/future.result(timeout=self.llm_timeout_s)/future.result()/' src/mardik/agent.py
+sed -i 's/future.result(timeout=self.llm_timeout_s)/future.result()/' src/mardik/agent.py      # GNU sed (Linux, CI)
+sed -i '' 's/future.result(timeout=self.llm_timeout_s)/future.result()/' src/mardik/agent.py   # BSD sed (macOS)
 uv run pytest -q     # attendu : 1 failed, 74 passed
 ```
 
