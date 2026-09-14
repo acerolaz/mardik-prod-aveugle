@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Protocol
 
+from .errors import LLMTimeoutError
 from .session import SessionStore
 from .telemetry import NoOpTelemetry
 
@@ -39,21 +40,24 @@ class Agent:
 
     def _invoke_llm_sync(self, messages: list[dict[str, Any]]) -> Reply:
         with self.telemetry.tracer.start_as_current_span("llm.invoke"):
-            try:
-                return self.llm.invoke(messages)
-            except TimeoutError:
-                return None  # type: ignore[return-value]
+            return self.llm.invoke(messages)
 
     def _invoke_llm(self, messages: list[dict[str, Any]]) -> Reply:
         # The Azure SDK call is blocking, so run it on a worker thread.
         box: dict[str, Any] = {}
 
         def worker() -> None:
-            box["reply"] = self._invoke_llm_sync(messages)
+            try:
+                box["reply"] = self._invoke_llm_sync(messages)
+            except TimeoutError as exc:
+                # Exceptions do not cross thread boundaries: hand it back.
+                box["error"] = exc
 
         thread = threading.Thread(target=worker)
         thread.start()
         thread.join()
+        if "error" in box:
+            raise LLMTimeoutError("LLM invocation timed out") from box["error"]
         return box["reply"]
 
     def _dispatch_tool(self, call: dict[str, Any]) -> str:
